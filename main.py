@@ -11,10 +11,10 @@ from import_data import import_training_data
 from neural_network import NeuralNetwork
 
 def main():
-    
+
+    # header    
     printRandomData = False
     
-
 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -29,12 +29,13 @@ def main():
     #print(model)
     
 
-    X = torch.rand(1, 28, 28, device=device)
-    logits = model(X)
-    pred_probab = nn.Softmax(dim=1)(logits)
-    y_pred = pred_probab.argmax(1)
+    
+    n = np.random.randint(0,59999)
+    
+    logits = model(data[n,:,:])
+    y_pred = logits.argmax(1)
     print(f"Predicted class: {y_pred}")
-    print(pred_probab)
+    print(logits)
 
 
 if __name__ == "__main__":

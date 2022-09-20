@@ -15,6 +15,7 @@ class NeuralNetwork(nn.Module):
             nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(512, 10),
+            nn.Softmax()
         )
 
     def forward(self, x):

@@ -23,7 +23,8 @@ def plot_multiple_samples(data,labels,n):
     m = len(n)
     fig, axes = plt.subplots(ncols = m,sharex=False, sharey=True, figsize=(10, 4))
     for i in range(m):
-        axes[i].set_title(labels[n[i]])
+        label = int(labels[n[i]])
+        axes[i].set_title(label)
         axes[i].imshow(data[n[i],:,:], cmap='gray')
         axes[i].get_xaxis().set_visible(False)
         axes[i].get_yaxis().set_visible(False)
