@@ -9,7 +9,9 @@ def import_data(imageFile,labelsFile):
     # labels is a np.ndarray type of object of shape (60000, )
     data = torch.tensor(data).float()
     labels = torch.tensor(labels).float()
+    
     dataShape = torch.reshape(data,(-1,1,28,28))
+    # We reshape to allow for a channel "1" which makes working with the convolution functions later easier
     return dataShape, labels
     
 

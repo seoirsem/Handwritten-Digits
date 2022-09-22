@@ -28,3 +28,7 @@ def run_test_set(model,testFiles):
     percentCorrect = round(100.0*nTrue/nSample,1)
 
     print('In the test set ' + str(percentCorrect) + '% were correctly classified.')
+
+
+
+# TODO: output some random subset of incorrectly labelled data for analysis

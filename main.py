@@ -20,9 +20,9 @@ def main():
     # header    
     plotRandomData = False
     plotLearningRate = True
-    epochs = 300
+    epochs = 100
     learningRate = 0.1
-    nTrain = 2500
+    nTrain = 1000
 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
