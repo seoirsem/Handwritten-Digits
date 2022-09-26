@@ -8,6 +8,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from os.path import exists
+import math
 
 from view_data import plot_single_sample, plot_multiple_samples
 from import_data import import_data, prepare_label_array
@@ -23,10 +24,15 @@ def main():
     loadModel = True
     saveModel = True
     plotRandomData = False
-    plotLearningRate = True
-    epochs = 1000
+    plotLearningRate = False
+    # set 0 to not plot any. Otherwise plot n incorrectly labelled items
+    plotNumberIncorrectSubset = 6
+    epochs = 1
+    printSubsets = 10 # how often you output model progress
     learningRate = 0.1
-    nTrain = 1000
+    nTrain = 60000
+    nTest = 10000
+
 
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -56,12 +62,10 @@ def main():
    # print(model.forward(data[0,:,:].reshape(1,1,28,28)))
     
     # TODO split into subsets of n to output progress 
-    model, losses, optimiser, epochNumbers = run_backpropogation_optimisation(model,data[0:nTrain,:,:,:],labels[0:nTrain,:],epochs,initialEpoch,learningRate)
-
-    # TODO: save intermediate training steps
-    # https://stackoverflow.com/questions/42703500/how-do-i-save-a-trained-model-in-pytorch
-
-    print('Final loss value of: ' + str(round(losses[-1],2)))
+    
+    model, losses, optimiser, epochNumbers = run_backpropogation_optimisation(model,data[0:nTrain,:,:,:],labels[0:nTrain,:],epochs,initialEpoch,learningRate,printSubsets)
+            
+    print('Final loss value of: ' + str(round(losses[-1],3)))
 
     if saveModel:
         torch.save({
@@ -81,7 +85,7 @@ def main():
         plt.ylabel('Binary Cross Entropy Loss')
         plt.show()
 
-    run_test_set(model,testFiles)
+    run_test_set(model,testFiles,plotNumberIncorrectSubset,nTest)
 
 
 if __name__ == "__main__":

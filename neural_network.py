@@ -39,7 +39,7 @@ class NeuralNetwork(nn.Module):
         return F.sigmoid(x)
 
 
-def run_backpropogation_optimisation(model,X,y,epochs,initialEpoch,learningRate):
+def run_backpropogation_optimisation(model,X,y,epochs,initialEpoch,learningRate,printSubset):
 
     loss_function = nn.BCELoss()
     optimiser = torch.optim.SGD(model.parameters(), lr=learningRate)
@@ -56,6 +56,10 @@ def run_backpropogation_optimisation(model,X,y,epochs,initialEpoch,learningRate)
         model.zero_grad()
         loss.backward()
         optimiser.step()
+        if epoch % printSubset == 0:
+            if epoch != 0:
+                print(str(epoch) + ' steps into training the loss is ' + str(round(loss.item(),3)))
+
 
     end = time.time()
     print('Total training time: ' + str(round(end - start,2)) + 's for ' + str(epochs) + ' epochs at a learning rate of ' + str(learningRate) + '.')
