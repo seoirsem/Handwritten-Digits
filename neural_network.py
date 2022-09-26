@@ -39,14 +39,15 @@ class NeuralNetwork(nn.Module):
         return F.sigmoid(x)
 
 
-def run_backpropogation_optimisation(model,X,y,epochs,learningRate):
+def run_backpropogation_optimisation(model,X,y,epochs,initialEpoch,learningRate):
 
     loss_function = nn.BCELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=learningRate)
+    optimiser = torch.optim.SGD(model.parameters(), lr=learningRate)
     losses = []
     start = time.time()
+    epochNumbers = []
     for epoch in range(epochs):
-
+        epochNumbers.append(epoch+initialEpoch)
         yPrediction = model(X.float())
         
         loss = loss_function(yPrediction.reshape(-1).float(), y.reshape(-1).float())
@@ -54,9 +55,9 @@ def run_backpropogation_optimisation(model,X,y,epochs,learningRate):
 
         model.zero_grad()
         loss.backward()
-        optimizer.step()
+        optimiser.step()
 
     end = time.time()
     print('Total training time: ' + str(round(end - start,2)) + 's for ' + str(epochs) + ' epochs at a learning rate of ' + str(learningRate) + '.')
     
-    return model, losses
+    return model, losses, optimiser, epochNumbers
