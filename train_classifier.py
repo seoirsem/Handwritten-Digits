@@ -19,7 +19,7 @@ def main():
 
     trainingFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
     testFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
-    modelPath = 'savedModel.pt'
+    modelPath = 'savedDigitClassifierModel.pt'
     # header    
     loadModel = True
     saveModel = True

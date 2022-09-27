@@ -14,6 +14,7 @@ def run_test_set(model,testFiles,numberToPlot,nTest):
     nSample = 0
     nTrue = 0
     incorrectData = []
+    incorrectModelOutputs = []
     for i in range(m):
         nSample += 1
         modelOutput = torch.argmax(testModelOutputs[i]).item()
@@ -24,6 +25,7 @@ def run_test_set(model,testFiles,numberToPlot,nTest):
         else:
             outcome = 'Incorrect'
             incorrectData.append([data[i,0,:,:], number, modelOutput])
+            incorrectModelOutputs.append(testModelOutputs[i])
         # = torch.argmax(labels[i]).item()
         #print('Model prediction was ' + str(modelOutput) + ' against a ground truth of ' + str(number) + '. ' + outcome)
 
