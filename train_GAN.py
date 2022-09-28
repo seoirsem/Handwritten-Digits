@@ -7,83 +7,20 @@ import torch.nn.functional as F
 import time
 import torch.optim as optim
 from matplotlib import pyplot as plt
+import numpy as np
+from os.path import exists
+import torchvision.utils as vutils
 
 
 from import_data import generate_random_image_data, import_data, prepare_label_array
 from view_data import plot_single_sample
 
-class Generator(nn.Module):
-    
-    def __init__(self):
-        super(Generator, self).__init__()
-        ngf = 32
-        self.main = nn.Sequential(
-            # input is Z, going into a convolution
-            nn.ConvTranspose2d( 1, ngf * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 8),
-            nn.ReLU(True),
-            # state size. (ngf*8) x 4 x 4
-            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 4),
-            nn.ReLU(True),
-            # state size. (ngf*4) x 8 x 8
-            nn.ConvTranspose2d( ngf * 4, ngf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 2),
-            nn.ReLU(True),
-            # state size. (ngf*2) x 16 x 16
-            nn.ConvTranspose2d( ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf),
-            nn.ReLU(True),
-            # state size. (ngf) x 32 x 32
-            nn.ConvTranspose2d( ngf, 1, 4, 2, 1, bias=False),
-            nn.Tanh()
-            # state size. (nc) x 64 x 64
-        )
+from GAN_models import Discriminator, Generator
 
-    def forward(self, x):
-        return self.main(x)
-
-class Discriminator(nn.Module):
-    
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        ndf = 32
-        kernalSize = 4
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(1, ndf, kernalSize, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv2 = nn.Sequential(
-            # state size. (ndf) x 32 x 32
-            nn.Conv2d(ndf, ndf * 2, kernalSize, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-            # state size. (ndf*2) x 16 x 16
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(ndf * 2, ndf * 4, kernalSize, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv4 = nn.Sequential(
-            # state size. (ndf*4) x 8 x 8
-            nn.Conv2d(ndf * 4, 1, kernalSize, 2, 1, bias=False),
-            nn.Sigmoid()
-        )
-
-
-    def forward(self, x):
-#        print(x.shape)
-        x = self.conv1(x)
-#        print(x.shape)
-        x = self.conv2(x)
-#        print(x.shape)
-        x = self.conv3(x)
-#        print(x.shape)
-        x = self.conv4(x)
-#        print(x.shape)
-
-        return x#self.main(x)
+def get_random_subset(imageData,n):
+    indices = np.random.randint(0,imageData.shape[0],n)
+    print(indices)
+    return imageData[indices,:,:,:]
 
 
 
@@ -93,17 +30,23 @@ def main():
     testFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
     digitClassifierModelPath = 'savedModel.pt'
 
+    generatorFile = 'generator.pt'
+    discriminatorFile = 'discriminator.pt'
+    loadModel = True
+    saveModel = True
+    plotGeneratedImages = True
+
     realData,numbers = import_data(trainingFiles[0],trainingFiles[1])
     realDataLabels = prepare_label_array(numbers)
-
-    epochs = 100
+    epochs = 1
     printSubset = 10
     learningRate = 0.0002
-    nTrain = 100
     plotLearningRate = True
+    nBatch = 128
+    workers = 2
 
     nc = 1
-    nz = 100
+    nGeneratorIn = 100
     # Size of feature maps in generator
     ngf = 28
     # Size of feature maps in discriminator
@@ -115,55 +58,140 @@ def main():
     print(f"Using {device} device")
 
     discriminator = Discriminator().to(device)
+    if loadModel and exists(discriminatorFile):
+        checkpoint = torch.load(discriminatorFile)
+        discriminator.load_state_dict(checkpoint['model_state_dict'])
+        #optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
+        #initialEpoch = checkpoint['epoch']
+        #loss = checkpoint['loss']
+        print('Loaded model at ' + discriminatorFile)
+    else:
+        initialEpoch = 0
+
     generator = Generator().to(device)
-
-
-    generatedImage = generate_random_image_data(2)
-    #plot_single_sample(generatedImage[0,0,:,:],'Generated')
-    # output = discriminator.forward(generatedImage)
-    # print(output.shape)
-    # print(output)
+    if loadModel and exists(generatorFile):
+        checkpoint = torch.load(generatorFile)
+        generator.load_state_dict(checkpoint['model_state_dict'])
+        #optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
+        #initialEpoch = checkpoint['epoch']
+        #loss = checkpoint['loss']
+        print('Loaded model at ' + generatorFile)
+    else:
+        initialEpoch = 0
+        
+    #generator.forward(noise)
 
     # Initialize BCELoss function
     criterion = nn.BCELoss()
 
     # Create batch of latent vectors that we will use to visualize
     # the progression of the generator
-    fixed_noise = torch.randn(64, 1, 1, 1, device=device)
 
     # Establish convention for real and fake labels during training
-    real_label = 1.
-    fake_label = 0.
+    labelReal = 1.
+    labelFake = 0.
+
+    dataloader = torch.utils.data.DataLoader(realData[0:12800,:,:,:], batch_size=nBatch, shuffle=True, num_workers=workers)
 
     # Setup Adam optimizers for each network
     optimiserD = optim.Adam(discriminator.parameters(), lr=learningRate, betas=(beta1, 0.999))
     optimiserG = optim.Adam(generator.parameters(), lr=learningRate, betas=(beta1, 0.999))
     
-    losses = []
-    X = realData[0:nTrain,:,:,:].float()
-    labelReal = torch.full((X.shape[0],), real_label, dtype=torch.float, device=device)
-    Xfake = generate_random_image_data(nTrain)
-    labelFake = torch.full((Xfake.shape[0],), fake_label, dtype=torch.float, device=device)
+    lossesGenerator = []
+    lossesDiscriminator = []
+    imageList = []
+    fixed_noise = torch.randn(64, nGeneratorIn, 1, 1, device=device)
+    steps = []
+    step = 0
+
     for epoch in range(epochs):
         
-        yPrediction = discriminator(X)
-        #print(yPrediction)
-        loss = criterion(yPrediction.reshape(-1).float(), labelReal.reshape(-1).float())
-        
-        yPrediction = discriminator(Xfake)
-        loss = criterion(yPrediction.reshape(-1).float(), labelFake.reshape(-1).float())
+        for i, data in enumerate(dataloader, 0):
+            #print(i)
+            steps.append(step)
+            step += 1
+        ############ Train discriminator #############
+            discriminator.zero_grad()
+            # all real
+            label = torch.full((nBatch,), labelReal, dtype=torch.float, device=device)
+            yPrediction = discriminator(data)
+            errorReal = criterion(yPrediction.reshape(-1).float(), label.reshape(-1).float())   
+            errorReal.backward()
+            meanYReal = yPrediction.mean().item()
 
-        losses.append(loss.item())
-        discriminator.zero_grad()
-        loss.backward()
-        optimiserD.step()
-        if epoch % printSubset == 0:
-            if epoch != 0:
-                print(str(epoch) + ' steps into training the loss is ' + str(round(loss.item(),3)))
+            # all fake
+            noise = torch.randn(nBatch, nGeneratorIn, 1, 1, device=device)
+            xFake = generator.forward(noise)
+            #xFake = generate_random_image_data(nBatch) ## replace with generator output
+            label.fill_(labelFake)
+            yPrediction = discriminator(xFake)
+            errorFake = criterion(yPrediction.reshape(-1).float(), label.reshape(-1).float())
+            errorFake.backward()
+            meanYFake = yPrediction.mean().item()
+            
+            # step
+            discriminatorError = errorReal + errorFake
+            optimiserD.step()
+
+        ############ Train Generator ##############
+            generator.zero_grad()
+            label.fill_(labelReal)
+            # fake labels are real for generator cost
+            # Since we just updated discriminator, perform another forward pass of all-fake batch through D
+            output = discriminator(xFake.detach()).view(-1)
+            # Calculate generator loss based on this output
+            generatorError = criterion(output, label.reshape(-1).float())
+            # Calculate gradients for generator
+            generatorError.backward()            
+            # Update generator
+            optimiserG.step()
+            meanYGenerator = output.mean().item()
+
+            lossesDiscriminator.append(discriminatorError.item())
+            lossesGenerator.append(generatorError.item())
+            if i % 50 == 0:
+                print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
+                  % (epoch, epochs, i, len(dataloader),
+                     discriminatorError.item(), generatorError.item(), meanYReal, meanYFake, meanYGenerator))
+        
+            if (step % 500 == 0) or ((epoch == epochs-1) and (i == len(dataloader)-1)):
+                with torch.no_grad():
+                    fake = generator(fixed_noise).detach().cpu()
+                    imageList.append(vutils.make_grid(fake, padding=2, normalize=True))
+            
+        ### TODO ### output images of generator during training
+    if plotGeneratedImages:
+        plt.figure(figsize = (8,8))
+        plt.axis("off")
+        plt.title("Fake Images")
+        plt.imshow(np.transpose(imageList[-1],(1,2,0)))
+        plt.show()
+
+    if saveModel:
+        torch.save({
+            #'epoch': epochs[-1],
+            'model_state_dict': generator.state_dict(),
+            'optimizer_state_dict': optimiserG.state_dict(),
+            'loss': lossesGenerator[-1],
+                }, generatorFile)
+        print('Model saved as "' + generatorFile + '"')
+
+        torch.save({
+            #'epoch': epochs[-1],
+            'model_state_dict': discriminator.state_dict(),
+            'optimizer_state_dict': optimiserD.state_dict(),
+            'loss': lossesDiscriminator[-1],
+                }, discriminatorFile)
+        print('Model saved as "' + discriminatorFile + '"')
+
+
+
 
     if plotLearningRate:
         plt.figure()
-        plt.plot(losses)
+        plt.plot(lossesDiscriminator, label = 'Discriminator')
+        plt.plot(lossesGenerator, label = 'Generator')
+        plt.legend()
         plt.grid()
         plt.xlabel('Epochs')
         plt.ylabel('Binary Cross Entropy Loss')
