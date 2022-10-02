@@ -5,84 +5,101 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import torch.nn.functional as F
 import time
-
+from torch import autograd
 
 class Generator(nn.Module):
     
-    def __init__(self):
+    def __init__(self,nLatent):
         super(Generator, self).__init__()
-        ngf = 32
-        self.conv1 = nn.Sequential(
-            nn.ConvTranspose2d( 100, ngf * 4, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 4),
-            nn.ReLU(True)
-            )
-        self.conv2 = nn.Sequential(
-            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 2),
-            nn.ReLU(True)
-            )
-        self.conv3 = nn.Sequential(
-            nn.ConvTranspose2d( ngf * 2, ngf * 1, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 1),
-            nn.ReLU(True)
-            )
-        self.conv4 = nn.Sequential(    
-            nn.ConvTranspose2d( ngf * 1, 1, 4, 2, 3, bias=False),
-            nn.Tanh()
+
+        self.nLatent = nLatent
+        self. z_dim = 100
+
+        self.gen = nn.Sequential(
+            self.get_generator_block(self.z_dim, nLatent * 4, kernel_size=3, stride=2),
+            self.get_generator_block(nLatent * 4, nLatent * 2, kernel_size=4, stride = 1),
+            self.get_generator_block(nLatent * 2, nLatent, kernel_size=3, stride = 2),
+            self.get_generator_final_block(nLatent, 1, kernel_size=4, stride=2)
         )
         
-
-    def forward(self, x):
-        #print(x.shape)
-        x = self.conv1(x)
-        #print(x.shape)
-        x = self.conv2(x)
-        #print(x.shape)
-        x = self.conv3(x)
-        #print(x.shape)
-        x = self.conv4(x)
-        #print(x.shape)
-        return x
+        
+    def get_generator_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return nn.Sequential(
+                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
+                nn.BatchNorm2d(output_channel),
+                nn.LeakyReLU(0.2,inplace=True),
+        )
+    
+    def get_generator_final_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return  nn.Sequential(
+                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
+                nn.Tanh()
+            )
+    
+    
+    def forward(self, noise):
+        #print(noise.shape)
+        #self.gen(noise)
+        #x = noise
+        x = noise.view(len(noise), self.z_dim, 1, 1)
+        return self.gen(x)
 
 class Discriminator(nn.Module):
     
     def __init__(self):
         super(Discriminator, self).__init__()
-        ndf = 32
-        kernalSize = 4
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(1, ndf, kernalSize, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv2 = nn.Sequential(
-            # state size. (ndf) x 32 x 32
-            nn.Conv2d(ndf, ndf * 2, kernalSize, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-            # state size. (ndf*2) x 16 x 16
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(ndf * 2, ndf * 4, kernalSize, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv4 = nn.Sequential(
-            # state size. (ndf*4) x 8 x 8
-            nn.Conv2d(ndf * 4, 1, kernalSize, 2, 1, bias=False),
-            nn.Sigmoid()
+        imChannel = 1
+        hiddenDimension = 16
+
+        self.disc = nn.Sequential(            
+            self.get_critic_block(imChannel, hiddenDimension * 4, kernel_size=4, stride=2),
+            self.get_critic_block(hiddenDimension * 4, hiddenDimension * 8, kernel_size=4, stride=2,),
+            self.get_critic_final_block(hiddenDimension * 8, 1, kernel_size=4, stride=2,),
         )
 
+    def get_critic_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return nn.Sequential(
+                nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
+                #nn.BatchNorm2d(output_channel),
+                nn.GroupNorm(int(output_channel/8),output_channel),
+               #  nn.LayerNorm(normalized_shape=self[0,:,:,:].shape),
+                nn.LeakyReLU(0.2, inplace=True)
+        )
+    
+    def get_critic_final_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return  nn.Sequential(
+                nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
+            )
+    
+    def forward(self, image):
+        return self.disc(image)
 
-    def forward(self, x):
-#        print(x.shape)
-        x = self.conv1(x)
-#        print(x.shape)
-        x = self.conv2(x)
-#        print(x.shape)
-        x = self.conv3(x)
-#        print(x.shape)
-        x = self.conv4(x)
-#        print(x.shape)
 
-        return x#self.main(x)
+
+
+def compute_gp(netD, real_data, fake_data):
+        batch_size = real_data.size(0)
+        # Sample Epsilon from uniform distribution
+        eps = torch.rand(batch_size, 1, 1, 1).to(real_data.device)
+        eps = eps.expand_as(real_data)
+        
+        # Interpolation between real data and fake data.
+        interpolation = eps * real_data + (1 - eps) * fake_data
+        
+        # get logits for interpolated images
+        interp_logits = netD(interpolation)
+        grad_outputs = torch.ones_like(interp_logits)
+        
+        # Compute Gradients
+        gradients = autograd.grad(
+            outputs=interp_logits,
+            inputs=interpolation,
+            grad_outputs=grad_outputs,
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+        
+        # Compute and return Gradient Norm
+        gradients = gradients.view(batch_size, -1)
+        grad_norm = gradients.norm(2, 1)
+        return torch.mean((grad_norm - 1) ** 2)
