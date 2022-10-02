@@ -9,11 +9,12 @@ def import_data(imageFile,labelsFile):
     # arr is a np.ndarray type of object of shape (60000, 28, 28)
     labels = idx2numpy.convert_from_file(labelsFile)
     # labels is a np.ndarray type of object of shape (60000, )
-    data = torch.tensor(data).float()
+    data = (torch.tensor(data).float() - 128)/256
     labels = torch.tensor(labels).float()
 
     dataShape = torch.reshape(data,(-1,1,28,28))
     # We reshape to allow for a channel "1" which makes working with the convolution functions later easier
+    #print(data[0,:,:])
     return dataShape, labels
     
 

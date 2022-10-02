@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import time
 from torch import autograd
 
+
 class Generator(nn.Module):
     
     def __init__(self,nLatent):
@@ -14,22 +15,23 @@ class Generator(nn.Module):
 
         self.nLatent = nLatent
         self. z_dim = 100
+        self.conv1 = self.get_generator_block(self.z_dim, nLatent * 4, kernel_size=3, stride=2)
+        self.conv2 = self.get_generator_block(nLatent * 4, nLatent * 2, kernel_size=4, stride = 1)
+        self.conv3 = self.get_generator_block(nLatent * 2, nLatent, kernel_size=3, stride = 2)
+        self.convFinal = self.get_generator_final_block(nLatent, 1, kernel_size=4, stride=2)
 
-        self.gen = nn.Sequential(
-            self.get_generator_block(self.z_dim, nLatent * 4, kernel_size=3, stride=2),
-            self.get_generator_block(nLatent * 4, nLatent * 2, kernel_size=4, stride = 1),
-            self.get_generator_block(nLatent * 2, nLatent, kernel_size=3, stride = 2),
-            self.get_generator_final_block(nLatent, 1, kernel_size=4, stride=2)
-        )
-        
-        
+
     def get_generator_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
         return nn.Sequential(
+                #nn.Upsample(scale_factor = 2, mode='bilinear'),
+                #nn.ReflectionPad2d(1),
                 nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
+                #nn.Upsample(scale_factor = 0.5, mode='bilinear'),
+
                 nn.BatchNorm2d(output_channel),
                 nn.LeakyReLU(0.2,inplace=True),
-        )
-    
+        )    
+
     def get_generator_final_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
         return  nn.Sequential(
                 nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
@@ -37,13 +39,19 @@ class Generator(nn.Module):
             )
     
     
-    def forward(self, noise):
-        #print(noise.shape)
-        #self.gen(noise)
-        #x = noise
+    def forward(self, noise): 
         x = noise.view(len(noise), self.z_dim, 1, 1)
-        return self.gen(x)
-
+        x = self.conv1(x)
+        #print(x.shape)
+        x = self.conv2(x)
+        #print(x.shape)
+        x = self.conv3(x)
+        #print(x.shape)
+        x = self.convFinal(x)
+        #print(x.shape)
+        #raise ValueError('A very specific bad thing happened.')
+        return x
+    
 class Discriminator(nn.Module):
     
     def __init__(self):
@@ -60,8 +68,8 @@ class Discriminator(nn.Module):
     def get_critic_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
         return nn.Sequential(
                 nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
-                #nn.BatchNorm2d(output_channel),
-                nn.GroupNorm(int(output_channel/8),output_channel),
+                nn.BatchNorm2d(output_channel),
+                #nn.GroupNorm(int(output_channel/),output_channel),
                #  nn.LayerNorm(normalized_shape=self[0,:,:,:].shape),
                 nn.LeakyReLU(0.2, inplace=True)
         )

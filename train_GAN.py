@@ -41,17 +41,18 @@ def main():
     loadModel = True
     saveModel = True
     plotGeneratedImages = True
+    plotSingleSample = True
 
     realData,numbers = import_data(trainingFiles[0],trainingFiles[1])
-    epochs = 60
-    MNISTSubset = 1#6400#int(12800/2)
+    epochs = 20
+    MNISTSubset = 1280#6400#int(12800/2)
 
     # https://arxiv.org/pdf/1701.07875.pdf Wasserstein paper for source of values
-    learningRate = 0.0002
+    learningRate = 0.00005
     #learningRate = 0.0005
     clipping = 0.02
-    nBatch = 1#128
-    nCritic = 5 # number of generations of the critic per generator iteration
+    nBatch = 128
+    nCritic = 3 # number of generations of the critic per generator iteration
     lamdaGP = 10 # https://arxiv.org/pdf/1704.00028.pdf
     plotLearningRate = True
     workers = 2
@@ -127,7 +128,7 @@ def main():
 
                 
                 # step
-                #optimiserD.step()
+                optimiserD.step()
                 #for par in discriminator.parameters():
                  #   par.data.clamp_(-clipping,clipping)
 
@@ -162,7 +163,9 @@ def main():
         plt.axis("off")
         plt.title("Fake Images")
         plt.imshow(np.transpose(imageList[-1],(1,2,0)))
-        plt.show()
+        plt.show()  
+    if plotSingleSample:  
+        plot_single_sample(generator.forward(torch.randn(1, nGeneratorIn, 1, 1, device=device)).detach()[0,0,:,:],"Generated Sample")
 
     if saveModel:
         torch.save({
