@@ -23,11 +23,7 @@ class Generator(nn.Module):
 
     def get_generator_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
         return nn.Sequential(
-                #nn.Upsample(scale_factor = 2, mode='bilinear'),
-                #nn.ReflectionPad2d(1),
                 nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
-                #nn.Upsample(scale_factor = 0.5, mode='bilinear'),
-
                 nn.BatchNorm2d(output_channel),
                 nn.LeakyReLU(0.2,inplace=True),
         )    
@@ -42,14 +38,9 @@ class Generator(nn.Module):
     def forward(self, noise): 
         x = noise.view(len(noise), self.z_dim, 1, 1)
         x = self.conv1(x)
-        #print(x.shape)
         x = self.conv2(x)
-        #print(x.shape)
         x = self.conv3(x)
-        #print(x.shape)
         x = self.convFinal(x)
-        #print(x.shape)
-        #raise ValueError('A very specific bad thing happened.')
         return x
     
 class Discriminator(nn.Module):
@@ -65,12 +56,9 @@ class Discriminator(nn.Module):
             self.get_critic_final_block(hiddenDimension * 8, 1, kernel_size=4, stride=2,),
         )
 
-    def get_critic_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+    def get_critic_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 2):
         return nn.Sequential(
                 nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
-                nn.BatchNorm2d(output_channel),
-                #nn.GroupNorm(int(output_channel/),output_channel),
-               #  nn.LayerNorm(normalized_shape=self[0,:,:,:].shape),
                 nn.LeakyReLU(0.2, inplace=True)
         )
     
@@ -81,8 +69,6 @@ class Discriminator(nn.Module):
     
     def forward(self, image):
         return self.disc(image)
-
-
 
 
 def compute_gp(netD, real_data, fake_data):
@@ -111,3 +97,38 @@ def compute_gp(netD, real_data, fake_data):
         gradients = gradients.view(batch_size, -1)
         grad_norm = gradients.norm(2, 1)
         return torch.mean((grad_norm - 1) ** 2)
+
+
+
+
+class Classifier(nn.Module):
+    def __init__(self):
+        super(Classifier, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.fc1 = nn.Linear(320, 50)
+        self.fc2 = nn.Linear(50, 10)
+
+    def forward(self, x):
+        # convolutional layer 1
+        x = self.conv1(x)
+        x = F.max_pool2d(x,2)
+        x = F.relu(x)
+        # convolutional layer 2
+        x = self.conv2(x)
+        x = F.max_pool2d(x,2)
+        x = F.relu(x)
+
+        # Linear layer 1
+        # view is like reshape(), but is better defined with respect to what 
+        # happens with the underlying data
+        x = x.view(-1, 320)
+        x = self.fc1(x)
+        x = F.relu(x)
+
+        # randomly removes some subset of the data during training. Definitely needed for convergence!
+        x = F.dropout(x, training=self.training)
+        x = self.fc2(x)
+
+        return F.sigmoid(x)
+

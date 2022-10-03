@@ -1,3 +1,4 @@
+################## note that the ipynb contains the code run, this script was used for cpu testing ################
 import os
 import torch
 from torch import nn
@@ -16,7 +17,7 @@ from torch.autograd import Variable
 from import_data import generate_random_image_data, import_data, prepare_label_array
 from view_data import plot_single_sample
 
-from GAN_models import Discriminator, Generator, compute_gp
+from models import Discriminator, Generator, compute_gp
 
 def get_random_subset(imageData,n):
     indices = np.random.randint(0,imageData.shape[0],n)
@@ -34,17 +35,17 @@ def main():
 
     trainingFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
     testFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
-    digitClassifierModelPath = 'savedModel.pt'
+    digitClassifierModelPath = 'models/savedModel.pt'
 
-    generatorFile = 'generator_small.pt'
-    discriminatorFile = 'discriminator_small.pt'
+    generatorFile = 'models/generator.pt'
+    discriminatorFile = 'models/discriminator.pt'
     loadModel = True
-    saveModel = True
+    saveModel = False
     plotGeneratedImages = True
     plotSingleSample = True
 
     realData,numbers = import_data(trainingFiles[0],trainingFiles[1])
-    epochs = 20
+    epochs = 0
     MNISTSubset = 1280#6400#int(12800/2)
 
     # https://arxiv.org/pdf/1701.07875.pdf Wasserstein paper for source of values
@@ -68,7 +69,7 @@ def main():
 
     discriminator = Discriminator().to(device)
     if loadModel and exists(discriminatorFile):
-        checkpoint = torch.load(discriminatorFile)
+        checkpoint = torch.load(discriminatorFile, map_location = torch.device(device))
         discriminator.load_state_dict(checkpoint['model_state_dict'])
         #optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
         #initialEpoch = checkpoint['epoch']
@@ -79,7 +80,7 @@ def main():
 
     generator = Generator(nGeneratorIn).to(device)
     if loadModel and exists(generatorFile):
-        checkpoint = torch.load(generatorFile)
+        checkpoint = torch.load(generatorFile, map_location = torch.device(device))
         generator.load_state_dict(checkpoint['model_state_dict'])
         #optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
         #initialEpoch = checkpoint['epoch']
@@ -103,6 +104,7 @@ def main():
     steps = []
     step = 0
 
+    
 
     for epoch in range(epochs):
         epochStartTime = time.time()
