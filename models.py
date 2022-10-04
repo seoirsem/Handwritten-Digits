@@ -6,6 +6,7 @@ from torchvision import datasets, transforms
 import torch.nn.functional as F
 import time
 from torch import autograd
+from os.path import exists
 
 
 class Generator(nn.Module):
@@ -104,31 +105,66 @@ def compute_gp(netD, real_data, fake_data):
 class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.conv1 = self.conv_block(1,10,3)
+        self.conv2 = self.conv_block(10,20,2,1,2)
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.dropout = nn.Dropout(p=0.2)
 
+    def conv_block(self, inputChannel, outputChannel, kernelSize, stride = 1, padding = 1):
+      return nn.Sequential(
+          nn.Conv2d(inputChannel,outputChannel,kernelSize,stride,padding),
+          nn.MaxPool2d(3),
+          nn.BatchNorm2d(outputChannel),
+          nn.ReLU(0.2)
+      )
     def forward(self, x):
-        # convolutional layer 1
         x = self.conv1(x)
-        x = F.max_pool2d(x,2)
-        x = F.relu(x)
-        # convolutional layer 2
         x = self.conv2(x)
-        x = F.max_pool2d(x,2)
-        x = F.relu(x)
-
-        # Linear layer 1
-        # view is like reshape(), but is better defined with respect to what 
-        # happens with the underlying data
         x = x.view(-1, 320)
         x = self.fc1(x)
-        x = F.relu(x)
+        x = self.relu(x)
 
-        # randomly removes some subset of the data during training. Definitely needed for convergence!
-        x = F.dropout(x, training=self.training)
+        x = self.dropout(x)
         x = self.fc2(x)
+        return x
 
-        return F.sigmoid(x)
 
+
+def return_runtime_model_versions():
+    ############### this script loads the training models and saves just the last model version ##########
+    ######### the training models are large and save previous model iterations #############
+
+    generatorFile = 'models/generator.pt'
+    discriminatorFile = 'models/discriminator.pt'
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using {device} device")
+    discriminator = Discriminator().to(device)
+    if exists(discriminatorFile):
+        checkpoint = torch.load(discriminatorFile, map_location = torch.device(device))
+        discriminator.load_state_dict(checkpoint['model_state_dict'])
+        print('Loaded model at ' + discriminatorFile)
+
+    generator = Generator(100).to(device)
+    if exists(generatorFile):
+        checkpoint = torch.load(generatorFile, map_location = torch.device(device))
+        generator.load_state_dict(checkpoint['model_state_dict'])
+        print('Loaded model at ' + generatorFile)
+
+    generatorRuntime = 'models/generatorRuntime.pt'
+    discriminatorRuntime = 'models/discriminatorRuntime.pt'
+
+    torch.save(generator, generatorRuntime)
+    torch.save(discriminator, discriminatorRuntime)
+
+    ## to load, simply: ###########
+    # model = torch.load(PATH)
+    # model.eval()
+
+    # Remember that you must call model.eval() to set dropout and batch normalization layers to evaluation mode before running inference. Failing to do this will yield inconsistent inference results.
+    # https://pytorch.org/tutorials/beginner/saving_loading_models.html
+
+    print('Files saved')
