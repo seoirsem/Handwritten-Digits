@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from import_data import import_data
 from view_data import plot_several
 
+
 def beta_schedule(T,s=0.008):
     # from https://arxiv.org/pdf/2102.09672.pdf pg 4
     steps = T + 1
@@ -23,6 +24,7 @@ def beta_schedule(T,s=0.008):
     
 def extract(a, t, x_shape):
     batch_size = t.shape[0]
+    t = t.type(torch.int64)
     out = a.gather(-1, t.cpu())
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
@@ -61,12 +63,14 @@ def main():
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 
-    x = data[10:11]
+    x = data[110:111]
     xs = x
-    ts = torch.linspace(0,200,20)
-    x_noise = q_sample(xs, ts,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=None)
-        
-    plot_several(xs,['t=0','t=50'])
+    ts = np.linspace(0,4,5,dtype = int)
+    for t in ts[1:]:
+        x_noise = q_sample(x, torch.tensor([t]),sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=None)
+        xs = torch.cat((xs,x_noise),0)
+
+    plot_several(xs,ts)
 
 
 

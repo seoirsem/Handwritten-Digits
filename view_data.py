@@ -53,3 +53,14 @@ def plot_multiple_samples_incorrect_label(data):
         axes[i].get_yaxis().set_visible(False)
         
     plt.show()
+
+def plot_several(data,titles):
+    m = data.shape[0]
+    fig, axes = plt.subplots(ncols = m,sharex=False, sharey=True, figsize=(10, 4))
+    for i in range(m):
+        axes[i].set_title(titles[i])
+        axes[i].imshow(data[i,0,:,:], cmap='gray')
+        axes[i].get_xaxis().set_visible(False)
+        axes[i].get_yaxis().set_visible(False)
+        
+    plt.show()
