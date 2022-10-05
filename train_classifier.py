@@ -12,38 +12,43 @@ from import_data import import_data, prepare_label_array
 from models import Classifier
 
 
+############# Backprop #############
 
-def run_backpropogation_optimisation(model,X,y,epochs,initialEpoch,learningRate,printSubset):
-
-    loss_function = nn.BCELoss()
-    optimiser = torch.optim.SGD(model.parameters(), lr=learningRate)
-    losses = []
+def run_backpropogation_optimisation(device,model,X,y,epochs,learningRate,iterNumbers,
+                                     printSubset,losses,nBatch,loss_function,dataloader,percentCorrect,plots):
+    numberBatch = math.floor(X.shape[0]/nBatch)
     start = time.time()
-    epochNumbers = []
+    n = iterNumbers[-1]
     for epoch in range(epochs):
-        epochNumbers.append(epoch+initialEpoch)
-        yPrediction = model(X.float())
-        
-        loss = loss_function(yPrediction.reshape(-1).float(), y.reshape(-1).float())
-        losses.append(loss.item())
-
-        model.zero_grad()
+      epochStart = time.time()
+      for i, data in enumerate(dataloader, 0):
+        n = n+1
+        iterNumbers.append(n)
+        optimiser.zero_grad()
+        yPrediction = model(data[0])
+        loss = loss_function(yPrediction, data[1])
         loss.backward()
         optimiser.step()
-        if epoch % printSubset == 0:
-            if epoch != 0:
-                print(str(epoch) + ' steps into training the loss is ' + str(round(loss.item(),3)))
+        losses.append(loss.item())
 
+        #if i % 20 == 0:
+          # This is optional to see how decreasing error feeds into correct classification
+         # percentCorrect.append([n,run_test_set(model,testFiles,plotNumberIncorrectSubset,nTest,device,False)])
 
-    end = time.time()
-    print('Total training time: ' + str(round(end - start,2)) + 's for ' + str(epochs) + ' epochs at a learning rate of ' + str(learningRate) + '.')
-    
-    return model, losses, optimiser, epochNumbers
+      end = time.time()
+      print('Epoch [' + str(epoch+1) + '/' + str(epochs) + '] training time: ' + str(round(end - start,2)) + 
+            's at a learning rate of ' + str(learningRate) + ' with a final loss of ' + str(round(loss.item(),3)))
+      if epoch % 10 == 0 and plots:
+        percentCorrect.append([n,run_test_set(model,testFiles,plotNumberIncorrectSubset,nTest,device,True)])
+    return model, losses, optimiser, iterNumbers,percentCorrect
 
-def run_test_set(model,testFiles,numberToPlot,nTest):
+############ Test model ############
+
+def run_test_set(model,testFiles,numberToPlot,nTest,device,printOutput):
     data, numbers = import_data(testFiles[0],testFiles[1])
     labels = prepare_label_array(numbers)
-
+    data = data.to(device)
+    numbers = numbers.to(device)
     testModelOutputs = model.forward(data[0:nTest,:,:,:])
     m,n = testModelOutputs.shape
     nSample = 0
@@ -59,26 +64,38 @@ def run_test_set(model,testFiles,numberToPlot,nTest):
             nTrue += 1
         else:
             outcome = 'Incorrect'
-            incorrectData.append([data[i,0,:,:], number, modelOutput])
+            incorrectData.append([data[i,0,:,:].cpu(), number, modelOutput])
             incorrectModelOutputs.append(testModelOutputs[i])
-        # = torch.argmax(labels[i]).item()
-        #print('Model prediction was ' + str(modelOutput) + ' against a ground truth of ' + str(number) + '. ' + outcome)
-
+ 
     percentCorrect = round(100.0*nTrue/nSample,1)
 
-    print('In the test set ' + str(percentCorrect) + '% were correctly classified.')
+    if printOutput:
+      print('In the test set ' + str(percentCorrect) + '% were correctly classified.')
 
-    if numberToPlot != 0:
+    if numberToPlot != 0 and printOutput:
         if len(incorrectData) >numberToPlot:
             randPlots = numberToPlot
         else:
             randPlots = len(incorrectData)
         dataSubset = random.sample(incorrectData,randPlots)
-        print(randPlots)
-        #for i in range(randPlots):
-        #    plot_single_sample_incorrect_label(dataSubset[i][0],dataSubset[i][1],dataSubset[i][2])
         plot_multiple_samples_incorrect_label(dataSubset)
+    return percentCorrect
 
+
+
+def load_model(model,optimiser,modelPath):
+
+  if exists(modelPath):
+    checkpoint = torch.load(modelPath)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
+    initialEpoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    print('Loaded model at ' + modelPath)
+  else:
+    print('No file found')
+
+  return model,optimiser
 
 def main():
 
@@ -86,33 +103,44 @@ def main():
     testFiles = ['data/train-images-idx3-ubyte','data/train-labels-idx1-ubyte']
     modelPath = 'models/classifier.pt'
     # header    
-    loadModel = True
-    saveModel = True
+
     plotRandomData = False
-    plotLearningRate = False
-    # set 0 to not plot any. Otherwise plot n incorrectly labelled items
-    plotNumberIncorrectSubset = 6
-    epochs = 1
-    printSubsets = 10 # how often you output model progress
-    learningRate = 0.1
-    nTrain = 600
-    nTest = 10000
-
-
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using {device} device")
-    
+
     data,numbers = import_data(trainingFiles[0],trainingFiles[1])
     labels = prepare_label_array(numbers)
-
+    data = data.to(device)
+    labels = labels.to(device)
     if plotRandomData:
         n = np.random.randint(0,59999,4)
         plot_multiple_samples(data,numbers,n)
 
     #either load the model in the file or make a new one
     model = Classifier().to(device)
-    optimiser = torch.optim.SGD(model.parameters(), lr=learningRate)
+
+    loss_function = nn.CrossEntropyLoss()
+    losses = []
+    iterNumbers = [0]
+    percentCorrect = []
+    dataset = TensorDataset( Tensor(data), Tensor(labels) )
+
+
+    loadModel = False
+    saveModel = True
+    # set 0 to not plot any. Otherwise plot n incorrectly labelled items
+    plotNumberIncorrectSubset = 6
+    epochs = 100
+    printSubsets = 10 # how often you output model progress
+    learningRate = 0.0005
+    nTrain = 60000
+    nTest = 10000
+    nBatch = 128
+
+    optimiser = torch.optim.Adam(model.parameters(), lr=learningRate)
+    dataloader = DataLoader(dataset, batch_size= nBatch)
+
 
     if loadModel and exists(modelPath):
         checkpoint = torch.load(modelPath)
@@ -123,13 +151,10 @@ def main():
         print('Loaded model at ' + modelPath)
     else:
         initialEpoch = 0
-   
-   # print(model.forward(data[0,:,:].reshape(1,1,28,28)))
+
     
-    # TODO split into subsets of n to output progress 
-    
-    model, losses, optimiser, epochNumbers = run_backpropogation_optimisation(model,data[0:nTrain,:,:,:],labels[0:nTrain,:],epochs,initialEpoch,learningRate,printSubsets)
-            
+    model, losses, optimiser, iterNumbers, percentCorrect = run_backpropogation_optimisation(device,model,data[0:nTrain,:,:,:],labels[0:nTrain,:],epochs,learningRate,
+                                                                                            iterNumbers,printSubsets,losses,nBatch,loss_function,dataloader,percentCorrect,True)
     print('Final loss value of: ' + str(round(losses[-1],3)))
 
     if saveModel:
