@@ -8,7 +8,7 @@ import torchvision.utils as vutils
 from models import Generator, Classifier
 import math
 import torch.nn.functional as F
-
+import random
 from import_data import import_data
 from view_data import plot_several
 
@@ -37,8 +37,51 @@ def q_sample(x_start, t,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise
     sqrt_one_minus_alphas_cumprod_t = extract(
         sqrt_one_minus_alphas_cumprod, t, x_start.shape
     )
-
+    #print(sqrt_alphas_cumprod_t,sqrt_one_minus_alphas_cumprod_t)
     return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+
+def p_losses(denoise_model, x_start, t, noise=None):
+    if noise is None:
+        noise = torch.randn_like(x_start)
+
+    x_noisy = q_sample(x_start=x_start, t=t, noise=noise)
+
+    predicted_noise = denoise_model(x_noisy, t)
+
+    loss = F.smooth_l1_loss(noise, predicted_noise) #Creates a criterion that uses a squared term if the absolute element-wise error falls below beta and an L1 term otherwise. It is less sensitive to outliers than torch.nn.MSELoss and in some cases prevents exploding gradients (e.g. see the paper Fast R-CNN by Ross Girshick).
+    return loss
+
+class Diffusion():
+    def __init__(self,shapeIn):
+        super(Generator, self).__init__()
+
+        self.nLatent = nLatent
+        self. z_dim = 100
+        self.conv1 = self.get_generator_block(self.z_dim, nLatent * 4, kernel_size=3, stride=2)
+        self.conv2 = self.get_generator_block(nLatent * 4, nLatent * 2, kernel_size=4, stride = 1)
+        self.conv3 = self.get_generator_block(nLatent * 2, nLatent, kernel_size=3, stride = 2)
+        self.convFinal = self.get_generator_final_block(nLatent, 1, kernel_size=4, stride=2)
+
+
+    def get_generator_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return nn.Sequential(
+                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
+                nn.BatchNorm2d(output_channel),
+                nn.LeakyReLU(0.2,inplace=True),
+        )    
+
+    def get_generator_final_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return  nn.Sequential(
+                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
+                nn.Tanh()
+            )
+
+
+    def forward(self, noise): 
+
+        return x
+    
+
 
 def main():
     
@@ -62,10 +105,10 @@ def main():
     # calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-
-    x = data[110:111]
+    i = random.randint(0,60000)
+    x = data[i:i+1]
     xs = x
-    ts = np.linspace(0,4,5,dtype = int)
+    ts = np.linspace(0,199,5,dtype = int)
     for t in ts[1:]:
         x_noise = q_sample(x, torch.tensor([t]),sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=None)
         xs = torch.cat((xs,x_noise),0)

@@ -5,7 +5,7 @@ from os.path import exists
 from matplotlib import pyplot as plt
 import numpy as np
 import torchvision.utils as vutils
-from models import Generator, Classifier
+from models import Generator, Classifier, Discriminator
 import math
 
 def show_titled_grid(images,titles,ncol):
@@ -17,14 +17,14 @@ def show_titled_grid(images,titles,ncol):
             y = i % ncol    
             ax[x, y].imshow(images[i,0,:,:],cmap='gray')
             ax[x,y].axis('off')
-            ax[x,y].set_title('Pr: %i \nCon: %5.1f' % (titles[i][0], titles[i][1]))
+            ax[x,y].set_title('Pr: %i \nCon: %5.1f \nCr: %5.4f' % (titles[i][0], titles[i][1],titles[i][2]))
     else:   
         fig, ax = plt.subplots(1, h)
         for i in range(images.shape[0]):
             x = math.floor(i/ncol)
             ax[x].imshow(images[i,0,:,:],cmap='gray')
             ax[x].axis('off')
-            ax[x].set_title('Pr: %i \nCon: %5.1f' % (titles[i][0], titles[i][1]))
+            ax[x].set_title('Pr: %i \nCon: %5.1f \nCr: %5.3f' % (titles[i][0], titles[i][1],titles[i][2]))
     fig.tight_layout()
     plt.show()
 
@@ -36,9 +36,11 @@ def main():
     nGeneratorIn = 100
     generatorFile = 'models/generator.pt'
     classifierPath = 'models/classifier.pt'
+    discriminatorPath = 'models/discriminator.pt'
 
     showSimpleImageGrid = False
     printPredictions = False
+    drawHistogram = False
 
     classifier = Classifier().to(device)
     if exists(classifierPath):
@@ -56,36 +58,52 @@ def main():
     else:
         raise ValueError('The generator model file ' + generatorFile + ' was not found.')
 
+    discriminator = Discriminator().to(device)
+    if exists(discriminatorPath):
+        checkpoint = torch.load(discriminatorPath, map_location = torch.device(device))
+        discriminator.eval()
+        print('Loaded model at ' + discriminatorPath)
+    else:
+        raise ValueError('The discriminator model file ' + discriminatorPath + ' was not found.')
 
-    fixed_noise = torch.randn(100, nGeneratorIn, 1, 1, device=device)
+    nTotal = 6
+    fixed_noise = torch.randn(nTotal, nGeneratorIn, 1, 1, device=device)
     images = generator(fixed_noise).detach().cpu()
     
     imagesUnpacked = torch.split(images,1,dim = 0)
     
     labels = []
     classes = []
+    critic = []
     for image in imagesUnpacked:
-
-        prediction = classifier.forward(image*128 +128)[0,:]
+        prediction = classifier.forward(image)[0,:]
+        discOut = torch.mean(discriminator(image))
+        critic.append(discOut.item())
         argmax = torch.argmax(prediction)
-        max = prediction[argmax]
-        labels.append([argmax.item(),round(max.item(),2)])
+        maxi = prediction[argmax]
+        labels.append([argmax.item(),round(maxi.item(),2),discOut])
         classes.append(argmax.item())
         #print('The number looks like ' + str(argmax.item()) + ' with a classifier confidence of ' + str(round(max.item(),2)))
 
 
-    # Here we calculate the distribution of the numbers of generated digits
-    classDist = [0]*10
-    for c in classes:
-        classDist[c] += 1
 
-    print(classDist)
-    plt.figure()
-    plt.grid(zorder=0)
-    plt.hist(classes,density = True,zorder = 3)
-    plt.ylabel('Proportion')
-    plt.xlabel('Generated Digit')
-    plt.show()
+    # Here we calculate the distribution of the numbers of generated digits    
+    classScores = [0]*10
+    classDist = [0]*10
+    for i in range(len(classes)):
+        classDist[classes[i]] += 1
+        classScores[classes[i]] += critic[i]
+    classScores = [round(x/nTotal,5) for x in classScores]
+    print(classScores)
+
+    if drawHistogram:
+        print(classDist)
+        plt.figure()
+        plt.grid(zorder=0)
+        plt.hist(classes,density = True,zorder = 3)
+        plt.ylabel('Proportion')
+        plt.xlabel('Generated Digit')
+        plt.show()
 
     if printPredictions:
         show_titled_grid(images,labels,1)
