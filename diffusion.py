@@ -12,6 +12,9 @@ import torch.nn.functional as F
 import random
 from import_data import import_data
 from view_data import plot_several
+from torch.utils.data import DataLoader
+import time
+
 
 class SinusoidalPositionEmbeddings(nn.Module):
     def __init__(self, dim):
@@ -91,29 +94,29 @@ class Encoder():
         )
 
     def forward(self,z):
-        print(z.shape)
+        #print(z.shape)
         z = self.enc1(z)
-        print(z.shape)
+        #print(z.shape)
         z = self.enc2(z)
-        print(z.shape)
+        #print(z.shape)
         z = z.view(-1, 7*7*20)
-        print(z.shape)
+        #print(z.shape)
         mu = self.lin1(z)
         logVar = self.lin2(z)
-        print(mu.shape,logVar.shape)
+        #print(mu.shape,logVar.shape)
         return mu, logVar
 
 class Decoder():
     def __init__(self,shapeOut,nLatent):
         super(Decoder, self).__init__()
 
-        self.linear1 = self.linear(nLatent,100)
-        self.dec1 = self.decoder_block(1,1,1)
-        self.dec2 = self.decoder_block(1,1,1)
+        self.linear1 = self.linear(nLatent,7*7*20)
+        self.dec1 = self.decoder_block(20,10,3,3,2)
+        self.dec2 = self.decoder_block(10,1,2,2,3)
 
     def decoder_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
         return nn.Sequential(
-            nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
+            nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
             #nn.BatchNorm2d(output_channel),
             nn.LeakyReLU(0.2)#,inplace=True),
         )   
@@ -126,10 +129,15 @@ class Decoder():
             )
 
     def forward(self,z):
-
+        #print(z.shape)
         z = self.linear1(z)
+        #print(z.shape)
+        z = z.view(-1,20,7,7)
         z = self.dec1(z)
-        return self.dec2(z)
+        #print(z.shape)
+        z = self.dec2(z)
+        #print(z.shape)
+        return z
     
 class Diffusion():
     def __init__(self,shapeIn,nLatent):
@@ -174,6 +182,9 @@ def main():
     alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
     sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
     plot_noise = False
+    batch_size = 128
+    epochs = 1
+    learning_rate = 1e-3
 
     # calculations for diffusion q(x_t | x_{t-1}) and others
     sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
@@ -189,13 +200,35 @@ def main():
     for t in ts[1:]:
         x_noise = q_sample(x, torch.tensor([t]),sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=None)
         xs = torch.cat((xs,x_noise),0)
-
     if plot_noise:
         plot_several(xs,ts)
 
     diffusion = Diffusion([28,28],100)
-    diffusion.forward(x)
+    
+    dataloader = DataLoader(data["train"], batch_size=batch_size, shuffle=True, drop_last=True )
+    optimiser = torch.Adam(dataloader.parameters(), lr=learning_rate)
 
+
+    def backpropogate(epochs,dataloader,diffusion,optimiser,steps,losses):
+        
+        if(len(steps) != 0):
+            step = steps[-1]
+        else:
+            step =0
+
+        for epoch in range(epochs):
+            epoch_start_time = time.time()
+            for i, data in enumerate(dataloader, 0):
+                data=data.to(device)
+                steps.append(step)
+                step += 1
+
+
+    
+
+    backpropogate(epochs,dataloader,diffusion,)
+    #x_out = diffusion.forward(x).detach()
+    #plot_several(torch.cat((x,x_out),0),["Original","Generated"])
 
 if __name__ == "__main__":
     main()
