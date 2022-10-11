@@ -1,4 +1,5 @@
 import os
+from turtle import forward
 import torch
 from torch import nn
 from os.path import exists
@@ -12,6 +13,19 @@ import random
 from import_data import import_data
 from view_data import plot_several
 
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, time):
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = time[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        return embeddings
 
 def beta_schedule(T,s=0.008):
     # from https://arxiv.org/pdf/2102.09672.pdf pg 4
@@ -51,35 +65,96 @@ def p_losses(denoise_model, x_start, t, noise=None):
     loss = F.smooth_l1_loss(noise, predicted_noise) #Creates a criterion that uses a squared term if the absolute element-wise error falls below beta and an L1 term otherwise. It is less sensitive to outliers than torch.nn.MSELoss and in some cases prevents exploding gradients (e.g. see the paper Fast R-CNN by Ross Girshick).
     return loss
 
-class Diffusion():
-    def __init__(self,shapeIn):
-        super(Generator, self).__init__()
-
+class Encoder():
+    def __init__(self,shapeIn,nLatent):
+        super(Encoder, self).__init__()
+        self.shapeIn = shapeIn
         self.nLatent = nLatent
-        self. z_dim = 100
-        self.conv1 = self.get_generator_block(self.z_dim, nLatent * 4, kernel_size=3, stride=2)
-        self.conv2 = self.get_generator_block(nLatent * 4, nLatent * 2, kernel_size=4, stride = 1)
-        self.conv3 = self.get_generator_block(nLatent * 2, nLatent, kernel_size=3, stride = 2)
-        self.convFinal = self.get_generator_final_block(nLatent, 1, kernel_size=4, stride=2)
 
+        self.enc1 = self.encoder_block(1,10,3,2,1)
+        self.enc2 = self.encoder_block(10,20,3,2,1)
+        self.lin1 = self.linear(980,nLatent)
+        self.lin2 = self.linear(980,nLatent)
 
-    def get_generator_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+    def encoder_block(self, input_channel, output_channel, kernel_size, stride, padding):
         return nn.Sequential(
-                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
-                nn.BatchNorm2d(output_channel),
-                nn.LeakyReLU(0.2,inplace=True),
-        )    
+                nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
+                #nn.BatchNorm2d(output_channel),
+                nn.ReLU(0.2)#,inplace=True),
+            )   
 
-    def get_generator_final_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
-        return  nn.Sequential(
-                nn.ConvTranspose2d(input_channel, output_channel, kernel_size, stride, padding),
-                nn.Tanh()
+    def linear(self,nIn,nOut):
+        return nn.Sequential(
+            nn.Linear(nIn,nOut),
+            #nn.BatchNorm2d(output_channel),
+            nn.ReLU(0.2)#,inplace=True)
+        )
+
+    def forward(self,z):
+        print(z.shape)
+        z = self.enc1(z)
+        print(z.shape)
+        z = self.enc2(z)
+        print(z.shape)
+        z = z.view(-1, 7*7*20)
+        print(z.shape)
+        mu = self.lin1(z)
+        logVar = self.lin2(z)
+        print(mu.shape,logVar.shape)
+        return mu, logVar
+
+class Decoder():
+    def __init__(self,shapeOut,nLatent):
+        super(Decoder, self).__init__()
+
+        self.linear1 = self.linear(nLatent,100)
+        self.dec1 = self.decoder_block(1,1,1)
+        self.dec2 = self.decoder_block(1,1,1)
+
+    def decoder_block(self, input_channel, output_channel, kernel_size, stride = 1, padding = 0):
+        return nn.Sequential(
+            nn.Conv2d(input_channel, output_channel, kernel_size, stride, padding),
+            #nn.BatchNorm2d(output_channel),
+            nn.LeakyReLU(0.2)#,inplace=True),
+        )   
+
+    def linear(self,nLatent,nOut):
+        return nn.Sequential(
+                nn.Linear(nLatent,nOut),
+                #nn.BatchNorm2d(output_channel),
+                nn.ReLU(0.2)#,inplace=True),
             )
 
+    def forward(self,z):
 
-    def forward(self, noise): 
+        z = self.linear1(z)
+        z = self.dec1(z)
+        return self.dec2(z)
+    
+class Diffusion():
+    def __init__(self,shapeIn,nLatent):
+        super(Diffusion, self).__init__()
 
-        return x
+        self.encoder = Encoder(shapeIn,nLatent)
+        self.decoder = Decoder(shapeIn,nLatent) 
+        # not needed in first instance?
+        # self.time_dimen = nn.Sequential(
+        #         SinusoidalPositionEmbeddings(dim),
+        #         nn.Linear(dim, time_dim),
+        #         nn.GELU(),
+        #         nn.Linear(time_dim, time_dim),
+        #     )
+
+    def reparameterize(self, mu, logVar):
+        #Reparameterization takes in the input mu and logVar and sample the mu + std * eps
+        std = torch.exp(logVar/2)
+        eps = torch.randn_like(std)
+        return mu + std * eps
+
+    def forward(self, z): 
+        mu,logVar = self.encoder.forward(z)
+        z = self.reparameterize(mu, logVar)
+        return self.decoder.forward(z)
     
 
 
@@ -91,12 +166,14 @@ def main():
     print(f"Using {device} device")
     data,numbers = import_data(trainingFiles[0],trainingFiles[1])
 
+
     T = 200
     betas = beta_schedule(T,0.008)
     alphas = 1.-betas
     alphas_cumprod = torch.cumprod(alphas,-1) # cumprod is all the products of previous elements
     alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
     sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+    plot_noise = False
 
     # calculations for diffusion q(x_t | x_{t-1}) and others
     sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
@@ -113,9 +190,11 @@ def main():
         x_noise = q_sample(x, torch.tensor([t]),sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=None)
         xs = torch.cat((xs,x_noise),0)
 
-    plot_several(xs,ts)
+    if plot_noise:
+        plot_several(xs,ts)
 
-
+    diffusion = Diffusion([28,28],100)
+    diffusion.forward(x)
 
 
 if __name__ == "__main__":
