@@ -1,7 +1,7 @@
 import os
 from turtle import forward
 import torch
-from torch import nn
+from torch import TensorType, nn
 from os.path import exists
 from matplotlib import pyplot as plt
 import numpy as np
@@ -166,10 +166,30 @@ class Diffusion(nn.Module):
         z = self.reparameterize(mu, logVar)
         return self.decoder.forward(z)
     
-def sample_model(diffusion,x,t,T):
-    # we want to sample our model to check progress
 
-    return x
+def sample_model(diffusion,x,T,betas,sqrt_recip_alphas,sqrt_one_minus_alphas_cumprod,posterior_variance):
+    # we want to sample our model to check progress
+    def sample_timestep(diffusion,x,t,betas,sqrt_recip_alphas,sqrt_one_minus_alphas_cumprod,posterior_variance):
+        betas_t = extract(betas,t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = extract(sqrt_one_minus_alphas_cumprod, t, x.shape)
+        sqrt_recip_alphas_t = extract(sqrt_recip_alphas, t, x.shape)
+
+        model_mean = sqrt_recip_alphas_t * (x - betas_t * diffusion.forward(x, t) / sqrt_one_minus_alphas_cumprod_t)
+        
+        if t == 0:
+            return model_mean
+        else:
+            posterior_variance_t = extract(posterior_variance, t, x.shape)
+            noise = torch.randn_like(x)
+            # Algorithm 2 line 4:
+            return model_mean + torch.sqrt(posterior_variance_t) * noise
+
+    xt = x
+    for t in range(T):
+        xt = sample_timestep(diffusion,xt,torch.tensor([t]),betas,sqrt_recip_alphas,sqrt_one_minus_alphas_cumprod,posterior_variance)
+
+
+    return xt
 
 
 def main():
@@ -191,7 +211,7 @@ def main():
     batch_size = 128
     epochs = 1
     learning_rate = 1e-3
-    data_subset = 60000
+    data_subset = 1000
 
     # calculations for diffusion q(x_t | x_{t-1}) and others
     sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
@@ -253,7 +273,7 @@ def main():
     diffusion, steps, losses = backpropogate(epochs,dataloader,diffusion,optimiser,steps,losses,T,batch_size,device,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod)
 
     x = torch.rand(1,1,28,28)
-    x_samp = sample_model(diffusion,x,1,T)
+    x_samp = sample_model(diffusion,x,T,betas,sqrt_recip_alphas,sqrt_one_minus_alphas_cumprod,posterior_variance)
 
     x_out = diffusion.forward(x,0).detach()
     plot_several(torch.cat((x,x_out),0),["Original","Generated"])
