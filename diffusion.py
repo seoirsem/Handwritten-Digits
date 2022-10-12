@@ -14,6 +14,7 @@ from import_data import import_data
 from view_data import plot_several
 from torch.utils.data import DataLoader
 import time
+import torch.optim as optim
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -57,18 +58,18 @@ def q_sample(x_start, t,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise
     #print(sqrt_alphas_cumprod_t,sqrt_one_minus_alphas_cumprod_t)
     return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
 
-def p_losses(denoise_model, x_start, t, noise=None):
+def p_losses(denoise_model, x_start, t,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise = None):
     if noise is None:
         noise = torch.randn_like(x_start)
 
-    x_noisy = q_sample(x_start=x_start, t=t, noise=noise)
+    x_noisy = q_sample(x_start, t,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod, noise=noise)
 
     predicted_noise = denoise_model(x_noisy, t)
 
     loss = F.smooth_l1_loss(noise, predicted_noise) #Creates a criterion that uses a squared term if the absolute element-wise error falls below beta and an L1 term otherwise. It is less sensitive to outliers than torch.nn.MSELoss and in some cases prevents exploding gradients (e.g. see the paper Fast R-CNN by Ross Girshick).
     return loss
 
-class Encoder():
+class Encoder(nn.Module):
     def __init__(self,shapeIn,nLatent):
         super(Encoder, self).__init__()
         self.shapeIn = shapeIn
@@ -106,7 +107,7 @@ class Encoder():
         #print(mu.shape,logVar.shape)
         return mu, logVar
 
-class Decoder():
+class Decoder(nn.Module):
     def __init__(self,shapeOut,nLatent):
         super(Decoder, self).__init__()
 
@@ -139,7 +140,7 @@ class Decoder():
         #print(z.shape)
         return z
     
-class Diffusion():
+class Diffusion(nn.Module):
     def __init__(self,shapeIn,nLatent):
         super(Diffusion, self).__init__()
 
@@ -159,11 +160,16 @@ class Diffusion():
         eps = torch.randn_like(std)
         return mu + std * eps
 
-    def forward(self, z): 
+    def forward(self, z, t):
+        ### todo - implement time awareness 
         mu,logVar = self.encoder.forward(z)
         z = self.reparameterize(mu, logVar)
         return self.decoder.forward(z)
     
+def sample_model(diffusion,x,t,T):
+    # we want to sample our model to check progress
+
+    return x
 
 
 def main():
@@ -185,6 +191,7 @@ def main():
     batch_size = 128
     epochs = 1
     learning_rate = 1e-3
+    data_subset = 60000
 
     # calculations for diffusion q(x_t | x_{t-1}) and others
     sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
@@ -193,6 +200,7 @@ def main():
     # calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
+    ############### plotting data #############
     i = random.randint(0,60000)
     x = data[i:i+1]
     xs = x
@@ -202,14 +210,16 @@ def main():
         xs = torch.cat((xs,x_noise),0)
     if plot_noise:
         plot_several(xs,ts)
+    ##########
 
-    diffusion = Diffusion([28,28],100)
+    diffusion = Diffusion([28,28],100).to(device)
     
-    dataloader = DataLoader(data["train"], batch_size=batch_size, shuffle=True, drop_last=True )
-    optimiser = torch.Adam(dataloader.parameters(), lr=learning_rate)
+    dataloader = DataLoader(data[0:data_subset,:,:,:], batch_size=batch_size, shuffle=True, drop_last=True )
+    optimiser = optim.Adam(diffusion.parameters(), lr=learning_rate)
+    steps = []
+    losses = []
 
-
-    def backpropogate(epochs,dataloader,diffusion,optimiser,steps,losses):
+    def backpropogate(epochs,dataloader,diffusion,optimiser,steps,losses,T,batch_size,device,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod):
         
         if(len(steps) != 0):
             step = steps[-1]
@@ -223,12 +233,30 @@ def main():
                 steps.append(step)
                 step += 1
 
+                optimiser.zero_grad()
+                #################
+                t = torch.randint(0,T,(batch_size,),device = device)
+                loss = p_losses(diffusion,data,t,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod)
 
+                loss.backward()
+                optimiser.step()
+                losses.append(loss.item())
+
+            if i % 50 == 0:
+                print('[%d/%d][%d/%d]\tLoss: %.4f'
+              % (epoch, epochs, i, len(dataloader),
+                  losses.item()))
+
+        return diffusion, steps, losses
     
 
-    backpropogate(epochs,dataloader,diffusion,)
-    #x_out = diffusion.forward(x).detach()
-    #plot_several(torch.cat((x,x_out),0),["Original","Generated"])
+    diffusion, steps, losses = backpropogate(epochs,dataloader,diffusion,optimiser,steps,losses,T,batch_size,device,sqrt_alphas_cumprod,sqrt_one_minus_alphas_cumprod)
+
+    x = torch.rand(1,1,28,28)
+    x_samp = sample_model(diffusion,x,1,T)
+
+    x_out = diffusion.forward(x,0).detach()
+    plot_several(torch.cat((x,x_out),0),["Original","Generated"])
 
 if __name__ == "__main__":
     main()
